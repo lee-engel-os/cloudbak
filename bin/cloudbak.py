@@ -33,11 +33,11 @@ class cloudbak:
 
         logging.info("Cloudback v%s - config: %s", self.version, self.args.configfile)
 
-        self.aws = S3Connection(self.aws_id, self.aws_secret)
-
         if len(self.backup_dirs) < 1:
             logging.info("Could not find any directories to back up in the config file. exiting quietly")
             return None
+
+        self.aws = S3Connection(self.aws_id, self.aws_secret)
 
         self.process_buckets()
         self.process_backups()
@@ -131,6 +131,7 @@ class cloudbak:
             tarball_path = '%s/%s' % (tmp_dir, tarball_name)
             cmd = shlex.split('%s %s %s %s' % (tar, tar_opts, tarball_path, dir))
 
+            self._exec_command(cmd)
             print cmd
 
 if __name__ == '__main__':
