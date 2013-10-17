@@ -9,7 +9,8 @@ import os, os.path
 import re
 import shlex
 import socket
-from subprocess import call
+import subprocess
+from subprocess import call, Popen, PIPE
 import sys
 import warnings
 
@@ -50,7 +51,7 @@ class cloudbak:
 
         loglevel = levels['DEFAULT']
         logfile = '/var/log/cloudbak.log'
-        format = '%(asctime)s - %(levelname)s - %(message)s'
+        format = '%(asctime)s - %(levelname)s - PID=%(process)d - %(message)s'
 
         if self.config.has_option('logging', 'loglevel'):
             loglevel = levels[self.config.get('logging', 'loglevel').upper()]
@@ -90,12 +91,13 @@ class cloudbak:
                 (_t, bucket) = section.split(':')
                 self.buckets[bucket] = dict()
                 for item in config.items(section):
-                    logging.debug("Config - Found bucket definition: %s", bucket)
                     self.buckets[bucket].update({item[0]: item[1]})
             
             # we found a directory to back up
             if os.path.isdir(section):
-                logging.debug("Config - Found directory definition: %s", section)
+                if self.config.has_option(section, 'enabled') and not self.config.getboolean(section, 'enabled'):
+                    continue
+
                 self.backup_dirs.append(section)
 
     def process_buckets(self):
@@ -109,7 +111,17 @@ class cloudbak:
                 logging.info("Created bucket: %s", bucket)
 
     def _exec_command(self, cmd):
-        pass
+        logging.debug("About to exec %s", cmd)
+
+        child = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        (stdout, stderr) = child.communicate()
+
+        logging.debug("PID for command %s is %s", cmd, child.pid)
+        logging.debug("STDOUT for PID %s: %s", child.pid, stdout)
+        logging.debug("STDERR for PID %s: %s", child.pid, stderr)
+        logging.debug("Command %s completed.", cmd)
+
+        return child
 
     def process_backups(self):
         tmp_dir = '/tmp'
@@ -123,19 +135,28 @@ class cloudbak:
         now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')
 
         for dir in self.backup_dirs:
-            if self.config.has_option(dir, 'enabled') and not self.config.getboolean(dir, 'enabled'):
-                continue
-
             _d = dir.replace('/', '_')
             tarball_name = '%s,%s,%s,%s.tar.gz' % (username, hostname, now, _d)
             tarball_path = '%s/%s' % (tmp_dir, tarball_name)
             cmd = shlex.split('%s %s %s %s' % (tar, tar_opts, tarball_path, dir))
 
-            self._exec_command(cmd)
-            print cmd
+            proc = self._exec_command(cmd)
+
+            if proc.returncode <> 0:
+                logging.critical("Tar command returned non-zero return code: %s - will not be uploading this tarball.", proc.returncode)
+                warnings.warn("While creating tarball for %s the tar command returned %s", dir, proc.returncode)
+                continue
+
+            logging.info("Created tarball %s from directory %s", tarball_path, dir)
+
+            # Do the upload here
+            # Ask AWS S3 if the file exists
+
+            os.remove(tarball_path)
+            logging.info("Deleted tarball %s", tarball_path)
 
 if __name__ == '__main__':
     warnings.catch_warnings()
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore",category=DeprecationWarning)
 
     cbak = cloudbak()
