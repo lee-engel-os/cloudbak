@@ -3,6 +3,7 @@
 from boto.s3.connection import S3Connection
 import datetime
 import getpass
+import hashlib
 from ConfigParser import SafeConfigParser
 import logging
 import os, os.path
@@ -34,6 +35,7 @@ class cloudbak:
 
         logging.info("Cloudback v%s - config: %s", self.version, self.args.configfile)
 
+    def start_backups(self):
         if len(self.backup_dirs) < 1:
             logging.info("Could not find any directories to back up in the config file. exiting quietly")
             return None
@@ -83,7 +85,7 @@ class cloudbak:
             self.aws_id = config.get('aws', 'aws_access_key_id')
             self.aws_secret = config.get('aws', 'aws_secret_access_key')
         else:
-            raise Exception("You config file does not have a 'global' section.")
+            raise Exception("You config file does not have a 'aws' section.")
 
         for section in config.sections():
             # we found a bucket definition
@@ -149,6 +151,13 @@ class cloudbak:
 
             logging.info("Created tarball %s from directory %s", tarball_path, dir)
 
+            st_size = os.stat(tarball_path)[6]
+            md5hash = hashlib.md5(tarball_path).hexdigest()
+            key = '/%s/%s/%s' % (username, hostname, datetime.datetime.now().strftime('%Y/%m/%d/%H:%M:%S/'))
+            key += '%s/%s|%s' % (md5hash, st_size, os.path.basename(tarball_path))
+
+            logging.debug("Key: %s", key)
+
             # Do the upload here
             # Ask AWS S3 if the file exists
 
@@ -160,3 +169,4 @@ if __name__ == '__main__':
     warnings.simplefilter("ignore",category=DeprecationWarning)
 
     cbak = cloudbak()
+    cbak.start_backups()
